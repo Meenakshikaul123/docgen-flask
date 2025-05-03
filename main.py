@@ -45,8 +45,7 @@ def generate_docx():
     def generate_doc(title, sections, file_suffix):
         doc = Document()
         doc.add_heading(title, level=1)
-        doc.add_paragraph("This document was auto-generated based on the uploaded ticket.
-")
+        doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
         for sec in sections:
             doc.add_paragraph(f"{sec['title']}:", style='List Number')
             for bullet in sec['bullets']:
