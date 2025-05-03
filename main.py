@@ -1,9 +1,12 @@
-import os
-from flask import Flask, request, send_file
+from flask import Flask, request, send_from_directory, jsonify
 from docx import Document
 import tempfile
+import os
 
 app = Flask(__name__)
+
+OUTPUT_DIR = "generated_docs"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 @app.route("/", methods=["GET"])
 def health():
@@ -13,8 +16,6 @@ def health():
 def generate_docx():
     try:
         data = request.json
-        print("GPT SENT:", data)
-
         ui_info = data.get("ui", "No UI info provided.")
         backend_info = data.get("backend", "No backend info provided.")
 
@@ -24,13 +25,19 @@ def generate_docx():
         doc.add_heading('Backend Document', level=1)
         doc.add_paragraph(backend_info)
 
-        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-        doc.save(temp.name)
-        return send_file(temp.name, as_attachment=True, download_name="generated_doc.docx")
+        filename = "generated_doc.docx"
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        doc.save(filepath)
+
+        # Return URL string
+        return jsonify({"url": f"https://docgen-flask.onrender.com/download/{filename}"})
+
     except Exception as e:
-        print("ERROR:", e)
         return {"error": str(e)}, 500
 
+@app.route("/download/<filename>", methods=["GET"])
+def download_file(filename):
+    return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render will inject the correct port here
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000)
