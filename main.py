@@ -15,49 +15,41 @@ def health():
 @app.route("/generate-docx", methods=["POST"])
 def generate_docx():
     try:
-        if 'file' not in request.files:
+        file = request.files.get("file")
+        if not file:
             return jsonify({"error": "No file uploaded."}), 400
 
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "Empty filename."}), 400
-
-        # Read PDF content
+        # Read PDF
         reader = PdfReader(file)
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
 
-        # Generate filenames
-        ui_filename = f"{uuid.uuid4()}_ui.docx"
-        full_filename = f"{uuid.uuid4()}_full.docx"
+        # Generate unique filenames
+        ui_name = f"{uuid.uuid4()}_ui.docx"
+        full_name = f"{uuid.uuid4()}_full.docx"
 
-        # Create UI doc
+        # UI Doc
         ui_doc = Document()
-        ui_doc.add_heading("UI Checklist", level=1)
+        ui_doc.add_heading("UI Summary", level=1)
         ui_doc.add_paragraph(text)
-        ui_doc.add_paragraph("Auto-generated UI checklist based on the uploaded ticket.")
-        ui_doc_path = os.path.join(STATIC_DIR, ui_filename)
-        ui_doc.save(ui_doc_path)
+        ui_doc.save(os.path.join(STATIC_DIR, ui_name))
 
-        # Create full doc
+        # Full Doc
         full_doc = Document()
-        full_doc.add_heading("UI + Backend Report", level=1)
+        full_doc.add_heading("UI + Backend Troubleshooting", level=1)
         full_doc.add_paragraph(text)
-        full_doc.add_paragraph("Auto-generated full troubleshooting document.")
-        full_doc_path = os.path.join(STATIC_DIR, full_filename)
-        full_doc.save(full_doc_path)
+        full_doc.save(os.path.join(STATIC_DIR, full_name))
 
-        base_url = request.url_root.rstrip("/")
+        base_url = request.url_root.rstrip('/')
         return jsonify({
-            "ui_doc_link": f"{base_url}/static/{ui_filename}",
-            "full_doc_link": f"{base_url}/static/{full_filename}"
+            "ui_doc_link": f"{base_url}/static/{ui_name}",
+            "full_doc_link": f"{base_url}/static/{full_name}"
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Processing error: {str(e)}"}), 500
 
-# Optional: Just a backup endpoint if needed
-@app.route("/download/<filename>")
-def download(filename):
+@app.route("/static/<filename>")
+def serve_file(filename):
     return send_from_directory(STATIC_DIR, filename, as_attachment=True)
 
 if __name__ == "__main__":
