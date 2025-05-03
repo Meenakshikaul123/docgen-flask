@@ -1,12 +1,10 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_file
 from docx import Document
-from PyPDF2 import PdfReader
+import tempfile
+import base64
 import os
-import uuid
 
 app = Flask(__name__)
-STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
-os.makedirs(STATIC_DIR, exist_ok=True)
 
 @app.route("/", methods=["GET"])
 def health():
@@ -15,43 +13,49 @@ def health():
 @app.route("/generate-docx", methods=["POST"])
 def generate_docx():
     try:
-        file = request.files.get("file")
-        if not file:
-            return jsonify({"error": "No file uploaded."}), 400
+        data = request.get_json()
+        if "file_data" not in data:
+            return jsonify({"error": "No file data provided."}), 400
 
-        # Read PDF
-        reader = PdfReader(file)
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        # Decode base64 string to binary
+        file_content = base64.b64decode(data["file_data"])
 
-        # Generate unique filenames
-        ui_name = f"{uuid.uuid4()}_ui.docx"
-        full_name = f"{uuid.uuid4()}_full.docx"
+        # Save PDF temporarily
+        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_pdf.write(file_content)
+        temp_pdf.close()
 
-        # UI Doc
+        # Create documents (just sample content for now)
         ui_doc = Document()
-        ui_doc.add_heading("UI Summary", level=1)
-        ui_doc.add_paragraph(text)
-        ui_doc.save(os.path.join(STATIC_DIR, ui_name))
+        ui_doc.add_heading("UI Document", level=1)
+        ui_doc.add_paragraph("Auto-generated content from the uploaded PDF.")
 
-        # Full Doc
         full_doc = Document()
-        full_doc.add_heading("UI + Backend Troubleshooting", level=1)
-        full_doc.add_paragraph(text)
-        full_doc.save(os.path.join(STATIC_DIR, full_name))
+        full_doc.add_heading("Full UI + Backend Document", level=1)
+        full_doc.add_paragraph("Full content based on PDF input.")
 
-        base_url = request.url_root.rstrip('/')
+        # Save files
+        ui_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        full_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        ui_doc.save(ui_path)
+        full_doc.save(full_path)
+
         return jsonify({
-            "ui_doc_link": f"{base_url}/static/{ui_name}",
-            "full_doc_link": f"{base_url}/static/{full_name}"
+            "ui_doc_link": f"/download?file={os.path.basename(ui_path)}",
+            "full_doc_link": f"/download?file={os.path.basename(full_path)}"
         })
 
     except Exception as e:
-        return jsonify({"error": f"Processing error: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
-@app.route("/static/<filename>")
-def serve_file(filename):
-    return send_from_directory(STATIC_DIR, filename, as_attachment=True)
+@app.route("/download", methods=["GET"])
+def download():
+    filename = request.args.get("file")
+    filepath = os.path.join(tempfile.gettempdir(), filename)
+    if os.path.exists(filepath):
+        return send_file(filepath, as_attachment=True)
+    else:
+        return jsonify({"error": "File not found."}), 404
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
