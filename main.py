@@ -1,9 +1,8 @@
 from flask import Flask, request, jsonify, send_file
 from docx import Document
+import pdfplumber
 import tempfile
 import os
-import base64
-from PyPDF2 import PdfReader
 
 app = Flask(__name__)
 
@@ -14,57 +13,59 @@ def health():
 @app.route("/generate-docx", methods=["POST"])
 def generate_docx():
     try:
-        data = request.get_json()
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded."}), 400
 
-        if not data or "file_data" not in data:
-            return jsonify({"error": "Missing base64-encoded file data."}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "Empty filename."}), 400
 
-        try:
-            pdf_bytes = base64.b64decode(data["file_data"], validate=True)
-        except Exception as e:
-            return jsonify({"error": f"Base64 decode failed: {str(e)}"}), 400
+        # Save PDF
+        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        file.save(temp_pdf.name)
 
-        temp_pdf_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
-        with open(temp_pdf_path, "wb") as f:
-            f.write(pdf_bytes)
+        # Use pdfplumber to extract text
+        text = ""
+        with pdfplumber.open(temp_pdf.name) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() or ""
 
-        # Extract text from PDF
-        try:
-            reader = PdfReader(temp_pdf_path)
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception as e:
-            return jsonify({"error": f"Failed to extract text from PDF: {str(e)}"}), 500
+        if not text.strip():
+            return jsonify({"error": "Unable to extract text from PDF."}), 400
 
-        # Generate UI DOC
-        ui_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        # UI document
         ui_doc = Document()
         ui_doc.add_heading("UI-Friendly Version", level=1)
         ui_doc.add_paragraph(text)
-        ui_doc.save(ui_doc_path)
+        ui_doc.add_paragraph("Auto-generated document based on uploaded ticket.")
 
-        # Generate Full DOC
-        full_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        # Full document
         full_doc = Document()
-        full_doc.add_heading("Full Report Version", level=1)
+        full_doc.add_heading("Full Ticket Summary", level=1)
         full_doc.add_paragraph(text)
-        full_doc.save(full_doc_path)
+        full_doc.add_paragraph("Auto-generated document based on uploaded ticket.")
+
+        ui_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        full_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        ui_doc.save(ui_path)
+        full_doc.save(full_path)
 
         return jsonify({
-            "ui_doc_link": f"/download?file={os.path.basename(ui_doc_path)}",
-            "full_doc_link": f"/download?file={os.path.basename(full_doc_path)}"
+            "ui_doc_link": f"/download?file={os.path.basename(ui_path)}",
+            "full_doc_link": f"/download?file={os.path.basename(full_path)}"
         })
 
     except Exception as e:
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 @app.route("/download", methods=["GET"])
-def download_file():
+def download():
     filename = request.args.get("file")
-    path = os.path.join(tempfile.gettempdir(), filename)
-    if os.path.exists(path):
-        return send_file(path, as_attachment=True)
-    else:
-        return jsonify({"error": "File not found."}), 404
+    filepath = os.path.join(tempfile.gettempdir(), filename)
+    if os.path.exists(filepath):
+        return send_file(filepath, as_attachment=True)
+    return jsonify({"error": "File not found."}), 404
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
