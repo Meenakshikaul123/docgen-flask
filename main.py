@@ -1,33 +1,44 @@
+from flask import Flask, request, send_file
+from docx import Document
+from io import BytesIO
+
+app = Flask(__name__)
+
+@app.route("/", methods=["GET"])
+def health():
+    return "Server is live", 200
+
 @app.route("/generate-docx", methods=["POST"])
 def generate_docx():
     try:
-        data = request.get_json()
-        ticket_text = data.get("ticket_text", "")
+        data = request.json
+        print("GPT SENT:", data)
 
-        if not ticket_text:
-            return jsonify({"error": "ticket_text is required"}), 400
+        ui_info = data.get("ui", "No UI info provided.")
+        backend_info = data.get("backend", "No backend info provided.")
 
-        # Create UI-only DOCX
-        from docx import Document
-        import tempfile, os
+        doc = Document()
+        doc.add_heading('UI Document', level=1)
+        doc.add_paragraph(ui_info)
+        doc.add_heading('Backend Document', level=1)
+        doc.add_paragraph(backend_info)
 
-        ui_doc = Document()
-        ui_doc.add_heading("UI Checklist", level=1)
-        ui_doc.add_paragraph(ticket_text)
+        # Create an in-memory file
+        file_stream = BytesIO()
+        doc.save(file_stream)
+        file_stream.seek(0)
 
-        full_doc = Document()
-        full_doc.add_heading("UI + Backend Troubleshooting", level=1)
-        full_doc.add_paragraph(ticket_text)
-
-        ui_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-        full_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-        ui_doc.save(ui_file.name)
-        full_doc.save(full_file.name)
-
-        return jsonify({
-            "ui_doc_link": f"/download?file={os.path.basename(ui_file.name)}",
-            "full_doc_link": f"/download?file={os.path.basename(full_file.name)}"
-        })
-
+        return send_file(
+            file_stream,
+            as_attachment=True,
+            download_name="generated_doc.docx",
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("ERROR:", e)
+        return {"error": str(e)}, 500
+
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
