@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify, send_file
 from docx import Document
 import tempfile
-import base64
 import os
+import base64
+from PyPDF2 import PdfReader
 
 app = Flask(__name__)
 
@@ -14,46 +15,54 @@ def health():
 def generate_docx():
     try:
         data = request.get_json()
-        if "file_data" not in data:
-            return jsonify({"error": "No file data provided."}), 400
 
-        # Decode base64 string to binary
-        file_content = base64.b64decode(data["file_data"])
+        if not data or "file_data" not in data:
+            return jsonify({"error": "Missing base64-encoded file data."}), 400
 
-        # Save PDF temporarily
-        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        temp_pdf.write(file_content)
-        temp_pdf.close()
+        try:
+            pdf_bytes = base64.b64decode(data["file_data"], validate=True)
+        except Exception as e:
+            return jsonify({"error": f"Base64 decode failed: {str(e)}"}), 400
 
-        # Create documents (just sample content for now)
+        temp_pdf_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+        with open(temp_pdf_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        # Extract text from PDF
+        try:
+            reader = PdfReader(temp_pdf_path)
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as e:
+            return jsonify({"error": f"Failed to extract text from PDF: {str(e)}"}), 500
+
+        # Generate UI DOC
+        ui_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
         ui_doc = Document()
-        ui_doc.add_heading("UI Document", level=1)
-        ui_doc.add_paragraph("Auto-generated content from the uploaded PDF.")
+        ui_doc.add_heading("UI-Friendly Version", level=1)
+        ui_doc.add_paragraph(text)
+        ui_doc.save(ui_doc_path)
 
+        # Generate Full DOC
+        full_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
         full_doc = Document()
-        full_doc.add_heading("Full UI + Backend Document", level=1)
-        full_doc.add_paragraph("Full content based on PDF input.")
-
-        # Save files
-        ui_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
-        full_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
-        ui_doc.save(ui_path)
-        full_doc.save(full_path)
+        full_doc.add_heading("Full Report Version", level=1)
+        full_doc.add_paragraph(text)
+        full_doc.save(full_doc_path)
 
         return jsonify({
-            "ui_doc_link": f"/download?file={os.path.basename(ui_path)}",
-            "full_doc_link": f"/download?file={os.path.basename(full_path)}"
+            "ui_doc_link": f"/download?file={os.path.basename(ui_doc_path)}",
+            "full_doc_link": f"/download?file={os.path.basename(full_doc_path)}"
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 @app.route("/download", methods=["GET"])
-def download():
+def download_file():
     filename = request.args.get("file")
-    filepath = os.path.join(tempfile.gettempdir(), filename)
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True)
+    path = os.path.join(tempfile.gettempdir(), filename)
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
     else:
         return jsonify({"error": "File not found."}), 404
 
