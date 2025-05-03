@@ -1,6 +1,6 @@
-from flask import Flask, request, jsonify
-from PyPDF2 import PdfReader
+from flask import Flask, request, jsonify, send_file
 from docx import Document
+from PyPDF2 import PdfReader
 import tempfile
 import os
 
@@ -12,37 +12,55 @@ def health():
 
 @app.route("/generate-docx", methods=["POST"])
 def generate_docx():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded."}), 400
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded."}), 400
 
-    uploaded_file = request.files['file']
-    if uploaded_file.filename == "":
-        return jsonify({"error": "Empty filename."}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "Empty filename."}), 400
 
-    # Extract text from PDF
-    pdf_reader = PdfReader(uploaded_file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
+        # Save and read PDF content
+        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        file.save(temp_pdf.name)
+        reader = PdfReader(temp_pdf.name)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
 
-    # Create UI DOCX
-    ui_doc = Document()
-    ui_doc.add_heading("UI Troubleshooting", level=1)
-    ui_doc.add_paragraph(text)
-    ui_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
-    ui_doc.save(ui_doc_path)
+        # Create UI Document
+        ui_doc = Document()
+        ui_doc.add_heading("UI Checklist", level=1)
+        ui_doc.add_paragraph(text)
+        ui_doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
 
-    # Create Full DOCX
-    full_doc = Document()
-    full_doc.add_heading("UI Troubleshooting", level=1)
-    full_doc.add_paragraph(text)
-    full_doc.add_heading("Backend Troubleshooting", level=1)
-    full_doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
-    full_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
-    full_doc.save(full_doc_path)
+        # Create Full Document
+        full_doc = Document()
+        full_doc.add_heading("UI + Backend Troubleshooting", level=1)
+        full_doc.add_paragraph(text)
+        full_doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
 
-    # Upload to your server or return static links if hosted
-    return jsonify({
-        "ui_doc_link": f"https://docgen-flask.onrender.com/download/{os.path.basename(ui_doc_path)}",
-        "full_doc_link": f"https://docgen-flask.onrender.com/download/{os.path.basename(full_doc_path)}"
-    })
+        # Save both documents
+        ui_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        full_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        ui_doc.save(ui_file.name)
+        full_doc.save(full_file.name)
+
+        return jsonify({
+            "ui_doc_link": f"/download?file={os.path.basename(ui_file.name)}",
+            "full_doc_link": f"/download?file={os.path.basename(full_file.name)}"
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/download", methods=["GET"])
+def download():
+    filename = request.args.get("file")
+    filepath = os.path.join(tempfile.gettempdir(), filename)
+    if os.path.exists(filepath):
+        return send_file(filepath, as_attachment=True)
+    else:
+        return jsonify({"error": "File not found."}), 404
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
