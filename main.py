@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify, send_file
 from docx import Document
-import tempfile
-import os
-import base64
 import pdfplumber
+import tempfile
+import base64
+import os
 
 app = Flask(__name__)
 
@@ -15,47 +15,41 @@ def health():
 def generate_docx():
     try:
         data = request.get_json()
+        if "file_data" not in data:
+            return jsonify({"error": "No file_data found"}), 400
 
-        if not data or "file_data" not in data:
-            return jsonify({"error": "Missing base64-encoded file data."}), 400
-
-        try:
-            # Decode the base64 string
-            pdf_bytes = base64.b64decode(data["file_data"], validate=True)
-        except Exception as e:
-            return jsonify({"error": f"Invalid base64 input: {str(e)}"}), 400
-
-        # Save PDF to temp file
-        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        with open(temp_pdf.name, "wb") as f:
+        # Decode base64 PDF
+        pdf_bytes = base64.b64decode(data["file_data"], validate=True)
+        temp_pdf_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+        with open(temp_pdf_path, "wb") as f:
             f.write(pdf_bytes)
 
         # Extract text using pdfplumber
-        extracted_text = ""
-        with pdfplumber.open(temp_pdf.name) as pdf:
+        text = ""
+        with pdfplumber.open(temp_pdf_path) as pdf:
             for page in pdf.pages:
-                extracted_text += page.extract_text() or ""
+                text += page.extract_text() or ""
 
-        if not extracted_text.strip():
-            return jsonify({"error": "Unable to extract any text from the PDF."}), 400
+        if not text.strip():
+            return jsonify({"error": "No extractable text found in PDF."}), 400
 
-        # Create UI-only DOCX
-        ui_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        # Save UI doc
+        ui_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
         ui_doc = Document()
         ui_doc.add_heading("UI Document", level=1)
-        ui_doc.add_paragraph(extracted_text)
-        ui_doc.save(ui_doc_path)
+        ui_doc.add_paragraph(text)
+        ui_doc.save(ui_path)
 
-        # Create Full DOCX
-        full_doc_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
+        # Save Full doc
+        full_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
         full_doc = Document()
         full_doc.add_heading("UI + Backend Troubleshooting", level=1)
-        full_doc.add_paragraph(extracted_text)
-        full_doc.save(full_doc_path)
+        full_doc.add_paragraph(text)
+        full_doc.save(full_path)
 
         return jsonify({
-            "ui_doc_link": f"/download?file={os.path.basename(ui_doc_path)}",
-            "full_doc_link": f"/download?file={os.path.basename(full_doc_path)}"
+            "ui_doc_link": f"/download?file={os.path.basename(ui_path)}",
+            "full_doc_link": f"/download?file={os.path.basename(full_path)}"
         })
 
     except Exception as e:
@@ -64,10 +58,11 @@ def generate_docx():
 @app.route("/download", methods=["GET"])
 def download():
     filename = request.args.get("file")
-    filepath = os.path.join(tempfile.gettempdir(), filename)
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True)
+    path = os.path.join(tempfile.gettempdir(), filename)
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
     return jsonify({"error": "File not found"}), 404
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
