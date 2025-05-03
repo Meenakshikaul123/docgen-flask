@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, send_file
 from docx import Document
-from PyPDF2 import PdfReader
 import tempfile
 import os
 
@@ -13,32 +12,22 @@ def health():
 @app.route("/generate-docx", methods=["POST"])
 def generate_docx():
     try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded."}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "Empty filename."}), 400
-
-        # Save uploaded PDF temporarily
-        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        file.save(temp_pdf.name)
-
-        # Read PDF content
-        reader = PdfReader(temp_pdf.name)
-        extracted_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        data = request.get_json()
+        ticket_text = data.get("ticket_text", "")
+        if not ticket_text:
+            return jsonify({"error": "ticket_text is required."}), 400
 
         # Create UI-only document
         ui_doc = Document()
         ui_doc.add_heading("UI Checklist", level=1)
-        ui_doc.add_paragraph(extracted_text)
-        ui_doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
+        ui_doc.add_paragraph(ticket_text)
+        ui_doc.add_paragraph("This document was auto-generated from the ticket.")
 
-        # Create UI + Backend document
+        # Create Full document
         full_doc = Document()
         full_doc.add_heading("UI + Backend Troubleshooting", level=1)
-        full_doc.add_paragraph(extracted_text)
-        full_doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
+        full_doc.add_paragraph(ticket_text)
+        full_doc.add_paragraph("This document was auto-generated from the ticket.")
 
         # Save files
         ui_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
@@ -46,7 +35,6 @@ def generate_docx():
         ui_doc.save(ui_file.name)
         full_doc.save(full_file.name)
 
-        # Return download links
         return jsonify({
             "ui_doc_link": f"/download?file={os.path.basename(ui_file.name)}",
             "full_doc_link": f"/download?file={os.path.basename(full_file.name)}"
