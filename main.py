@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, send_file
 from docx import Document
 import tempfile
@@ -12,6 +13,8 @@ def health():
 def generate_docx():
     try:
         data = request.json
+        print("GPT SENT:", data)
+
         ui_info = data.get("ui", "No UI info provided.")
         backend_info = data.get("backend", "No backend info provided.")
 
@@ -23,14 +26,11 @@ def generate_docx():
 
         temp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
         doc.save(temp.name)
-        return send_file(
-            temp.name,
-            as_attachment=True,
-            download_name="generated_doc.docx",
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+        return send_file(temp.name, as_attachment=True, download_name="generated_doc.docx")
     except Exception as e:
+        print("ERROR:", e)
         return {"error": str(e)}, 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 5000))  # Render will inject the correct port here
+    app.run(host="0.0.0.0", port=port)
