@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, send_file
 from docx import Document
-from PyPDF2 import PdfReader
 import tempfile
 import os
 
@@ -13,42 +12,33 @@ def health():
 @app.route("/generate-docx", methods=["POST"])
 def generate_docx():
     try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded."}), 400
+        data = request.get_json()
+        if not data or "ticket_text" not in data:
+            return jsonify({"error": "Missing ticket_text in request."}), 400
 
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "Empty filename."}), 400
+        ticket_text = data["ticket_text"]
 
-        # Save uploaded PDF
-        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        file.save(temp_pdf.name)
-
-        # Extract text
-        reader = PdfReader(temp_pdf.name)
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
-
-        # Create UI-only document
+        # Create UI Document
         ui_doc = Document()
         ui_doc.add_heading("UI Checklist", level=1)
-        ui_doc.add_paragraph(text)
+        ui_doc.add_paragraph(ticket_text)
         ui_doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
 
-        # Create UI + Backend document
+        # Create Full Document
         full_doc = Document()
         full_doc.add_heading("UI + Backend Troubleshooting", level=1)
-        full_doc.add_paragraph(text)
+        full_doc.add_paragraph(ticket_text)
         full_doc.add_paragraph("This document was auto-generated based on the uploaded ticket.")
 
-        # Save both files
-        ui_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-        full_path = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-        ui_doc.save(ui_path.name)
-        full_doc.save(full_path.name)
+        # Save both documents
+        ui_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        full_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        ui_doc.save(ui_file.name)
+        full_doc.save(full_file.name)
 
         return jsonify({
-            "ui_doc_link": f"/download?file={os.path.basename(ui_path.name)}",
-            "full_doc_link": f"/download?file={os.path.basename(full_path.name)}"
+            "ui_doc_link": f"/download?file={os.path.basename(ui_file.name)}",
+            "full_doc_link": f"/download?file={os.path.basename(full_file.name)}"
         })
 
     except Exception as e:
